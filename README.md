@@ -1,0 +1,165 @@
+# Voirec
+
+Утилита для транскрибации аудио с поддержкой трёх моделей и опциональной диаризацией (разделением по спикерам). Работает через CLI или HTTP API.
+
+## Модели
+
+| Транскрибер | Модель по умолчанию | Язык | Движок |
+|---|---|---|---|
+| `whisper` | `onnx-community/whisper-large-v3-turbo` | 99 языков | ONNX (HuggingFace) |
+| `gigaam` | `gigaam-v3-e2e-rnnt` | Русский | ONNX |
+| `parakeet` | `nemo-parakeet-tdt-0.6b-v3` | Многоязычный | ONNX (NVIDIA NeMo) |
+
+Все модели скачиваются автоматически при первом использовании.
+
+## Установка
+
+```bash
+nix-shell
+uv sync
+```
+
+Для диаризации на моно-аудио нужны дополнительные зависимости:
+
+```bash
+uv sync --extra diarize
+```
+
+## CLI
+
+### Базовое использование
+
+```bash
+# Все три транскрибера
+voirec audio.mp3
+
+# Только один
+voirec --skip-gigaam --skip-parakeet audio.mp3
+
+# С диаризацией (разделение по спикерам)
+voirec --diarize audio.mp3
+voirec --diarize --num-speakers 2 audio.mp3
+```
+
+### Опции
+
+| Опция | Описание | По умолчанию |
+|---|---|---|
+| `-o, --output-dir PATH` | Директория для результатов | Рядом с файлом |
+| `--whisper-model TEXT` | Модель Whisper (любая HuggingFace ONNX) | `onnx-community/whisper-large-v3-turbo` |
+| `--gigaam-model TEXT` | Вариант GigaAM | `gigaam-v3-e2e-rnnt` |
+| `--parakeet-model TEXT` | Вариант Parakeet | `nemo-parakeet-tdt-0.6b-v3` |
+| `--skip-whisper` | Пропустить Whisper | — |
+| `--skip-gigaam` | Пропустить GigaAM | — |
+| `--skip-parakeet` | Пропустить Parakeet | — |
+| `--diarize` | Включить диаризацию | — |
+| `--num-speakers N` | Точное число спикеров | auto |
+| `--max-speakers N` | Максимальное число спикеров | — |
+
+### Выходные файлы
+
+```
+audio_whisper.txt
+audio_gigaam.txt
+audio_parakeet.txt
+
+# При --diarize:
+audio_dialogue.txt   # с тайм-кодами и метками спикеров
+```
+
+Формат диалога:
+```
+[00:00:01] СПИКЕР_1: Привет, как дела?
+[00:00:04] СПИКЕР_2: Всё хорошо, спасибо.
+```
+
+## HTTP API
+
+### Запуск
+
+```bash
+# Без аутентификации
+voirec-api
+
+# С аутентификацией
+VOIREC_API_KEYS=token1,token2 voirec-api --port 8080
+```
+
+Флаги: `--host` (default: `0.0.0.0`), `--port` (default: `8000`), `--reload`.
+
+Swagger UI доступен по адресу `http://localhost:8000/docs`.
+
+### Аутентификация
+
+Управляется переменными окружения:
+
+- `VOIREC_API_KEYS` — токены через запятую: `token1,token2`
+- `VOIREC_API_KEYS_FILE` — путь к файлу с токенами (по одному на строку), приоритет над `VOIREC_API_KEYS`
+
+Если ни одна переменная не задана — аутентификация отключена.
+
+Токен передаётся в заголовке: `Authorization: Bearer <token>` или `X-API-Key: <token>`.
+
+Эндпоинт `/health` всегда доступен без аутентификации.
+
+### Эндпоинты
+
+**`GET /health`**
+```json
+{"status": "ok", "version": "0.0.1"}
+```
+
+**`GET /models`**
+Список доступных транскрибберов и вариантов моделей.
+
+**`POST /transcribe`** — multipart form
+
+| Поле | Тип | Обязательный | Описание |
+|---|---|---|---|
+| `file` | file | Да | Аудиофайл |
+| `transcriber` | str | Нет | `whisper` / `gigaam` / `parakeet` (default: `whisper`) |
+| `model` | str | Нет | Имя модели (default: дефолт транскриббера) |
+| `diarize` | bool | Нет | Диаризация (default: `false`) |
+| `num_speakers` | int | Нет | Точное число спикеров |
+| `max_speakers` | int | Нет | Максимальное число спикеров |
+
+```bash
+curl -F "file=@audio.mp3" -F "transcriber=whisper" http://localhost:8000/transcribe
+```
+
+Ответ:
+```json
+{
+  "transcriber": "whisper",
+  "model": "onnx-community/whisper-large-v3-turbo",
+  "text": "Привет, мир...",
+  "diarized": false
+}
+```
+
+## Контейнер
+
+```bash
+# Собрать и запустить
+podman-compose up -d --build
+
+# С аутентификацией
+VOIREC_API_KEYS=mysecrettoken podman-compose up -d --build
+```
+
+Образ собирается в два этапа: зависимости устанавливаются на `python:3.12-slim` (glibc), runtime — `python:3.12-alpine` с `gcompat`. Модели кэшируются в named volume `hf_cache` и не скачиваются повторно при перезапуске.
+
+## Структура проекта
+
+```
+voirec/
+├── src/voirec/
+│   ├── __init__.py
+│   ├── cli.py           # CLI (Click)
+│   ├── transcribers.py  # Транскрибберы + диаризация
+│   └── api.py           # HTTP API (FastAPI)
+├── Containerfile        # Multi-stage Alpine образ
+├── podman-compose.yml
+├── pyproject.toml
+└── shell.nix            # Окружение NixOS
+```
