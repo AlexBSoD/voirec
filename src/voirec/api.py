@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .transcribers import (
     GigaAmTranscriber,
@@ -103,6 +103,7 @@ async def transcribe(
     file: UploadFile = File(...),
     transcriber: str = Form("whisper"),
     model: str | None = Form(None),
+    textonly: bool = Form(False),
     diarize: bool = Form(False),
     num_speakers: int | None = Form(None),
     max_speakers: int | None = Form(None),
@@ -147,6 +148,9 @@ async def transcribe(
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+    if textonly:
+        return PlainTextResponse(text)
 
     return JSONResponse({
         "transcriber": transcriber_name,
