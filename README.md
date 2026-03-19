@@ -119,6 +119,7 @@ Swagger UI доступен по адресу `http://localhost:8000/docs`.
 | `file` | file | Да | Аудиофайл |
 | `transcriber` | str | Нет | `whisper` / `gigaam` / `parakeet` (default: `whisper`) |
 | `model` | str | Нет | Имя модели (default: дефолт транскриббера) |
+| `textonly` | bool | Нет | Вернуть plain text вместо JSON (default: `false`) |
 | `diarize` | bool | Нет | Диаризация (default: `false`) |
 | `num_speakers` | int | Нет | Точное число спикеров |
 | `max_speakers` | int | Нет | Максимальное число спикеров |
@@ -135,6 +136,14 @@ curl -F "file=@audio.mp3" -F "transcriber=whisper" http://localhost:8000/transcr
   "text": "Привет, мир...",
   "diarized": false
 }
+```
+
+С `textonly=true` возвращается только текст без JSON-обёртки:
+```bash
+curl -F "file=@audio.mp3" -F "textonly=true" http://localhost:8000/transcribe
+```
+```
+Привет, мир...
 ```
 
 ## Контейнер
