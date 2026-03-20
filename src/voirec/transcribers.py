@@ -37,16 +37,16 @@ def _as_channel_wav(audio_path: str, channel_idx: int):
             os.unlink(tmp.name)
 
 
-def transcribe_channels(transcriber: "BaseTranscriber", audio_path: str) -> str:
+def transcribe_channels(transcriber: "BaseTranscriber", audio_path: str, language: str | None = None) -> str:
     """Transcribe audio, splitting by channels if multi-channel."""
     n = _get_channel_count(audio_path)
     if n <= 1:
-        return transcriber.transcribe(audio_path)
+        return transcriber.transcribe(audio_path, language=language)
 
     parts = []
     for i in range(n):
         with _as_channel_wav(audio_path, i) as wav:
-            text = transcriber.transcribe(wav)
+            text = transcriber.transcribe(wav, language=language)
         parts.append(f"[Канал {i + 1}]: {text}")
     return "\n".join(parts)
 
@@ -75,7 +75,7 @@ class BaseTranscriber(ABC):
     """Base class for all transcribers."""
 
     @abstractmethod
-    def transcribe(self, audio_path: str) -> str:
+    def transcribe(self, audio_path: str, language: str | None = None) -> str:
         """Transcribe audio file to text."""
         pass
 
@@ -94,9 +94,10 @@ class WhisperTranscriber(BaseTranscriber):
 
         self.model = onnx_asr.load_model(model_name)
 
-    def transcribe(self, audio_path: str) -> str:
+    def transcribe(self, audio_path: str, language: str | None = None) -> str:
         with _as_wav(audio_path) as wav:
-            results = self.model.recognize(wav)
+            kwargs = {"language": language} if language else {}
+            results = self.model.recognize(wav, **kwargs)
         if isinstance(results, list):
             return " ".join(r if isinstance(r, str) else r.text for r in results if r).strip()
         return (results if isinstance(results, str) else results.text or "").strip()
@@ -118,9 +119,10 @@ class ParakeetTranscriber(BaseTranscriber):
 
         self.model = onnx_asr.load_model(model_name)
 
-    def transcribe(self, audio_path: str) -> str:
+    def transcribe(self, audio_path: str, language: str | None = None) -> str:
         with _as_wav(audio_path) as wav:
-            results = self.model.recognize(wav)
+            kwargs = {"language": language} if language else {}
+            results = self.model.recognize(wav, **kwargs)
         if isinstance(results, list):
             return " ".join(r if isinstance(r, str) else r.text for r in results if r).strip()
         return (results if isinstance(results, str) else results.text or "").strip()
@@ -140,7 +142,7 @@ class GigaAmTranscriber(BaseTranscriber):
 
         self.model = onnx_asr.load_model(model_name)
 
-    def transcribe(self, audio_path: str) -> str:
+    def transcribe(self, audio_path: str, language: str | None = None) -> str:
         with _as_wav(audio_path) as wav:
             results = self.model.recognize(wav)
         if isinstance(results, list):
@@ -175,17 +177,18 @@ def _extract_segment(audio_path: str, start: float, end: float):
             os.unlink(tmp.name)
 
 
-def _diarize_by_channels(transcriber: "BaseTranscriber", audio_path: str) -> list[DiarizedSegment]:
+def _diarize_by_channels(transcriber: "BaseTranscriber", audio_path: str, language: str | None = None) -> list[DiarizedSegment]:
     """Диаризация для многоканального аудио: каждый канал = отдельный спикер."""
     import onnx_asr
 
     vad = onnx_asr.load_vad("silero")
     adapter = transcriber.model.with_vad(vad)  # type: ignore[attr-defined]
     n = _get_channel_count(audio_path)
+    kwargs = {"language": language} if language else {}
     all_segments: list[DiarizedSegment] = []
     for i in range(n):
         with _as_channel_wav(audio_path, i) as wav:
-            for seg in adapter.recognize(wav):
+            for seg in adapter.recognize(wav, **kwargs):
                 if seg.text.strip():
                     all_segments.append(DiarizedSegment(seg.start, seg.end, f"СПИКЕР_{i + 1}", seg.text.strip()))
     return sorted(all_segments, key=lambda s: s.start)
@@ -197,6 +200,7 @@ def diarize_and_transcribe(
     num_speakers: int | None = None,
     max_speakers: int | None = None,
     embed_model: str = "ecapa",  # kept for API compat, unused
+    language: str | None = None,
 ) -> list[DiarizedSegment]:
     """Диаризация + транскрибация.
 
@@ -205,7 +209,7 @@ def diarize_and_transcribe(
     """
     n_channels = _get_channel_count(audio_path)
     if n_channels > 1 and hasattr(transcriber, "model"):
-        return _diarize_by_channels(transcriber, audio_path)
+        return _diarize_by_channels(transcriber, audio_path, language=language)
 
     try:
         from resemblyzer import VoiceEncoder, preprocess_wav
@@ -236,7 +240,7 @@ def diarize_and_transcribe(
             starts.append(i / SR)
 
     if not windows:
-        text = transcriber.transcribe(audio_path)
+        text = transcriber.transcribe(audio_path, language=language)
         return [DiarizedSegment(0.0, total_dur, "СПИКЕР_1", text.strip())] if text.strip() else []
 
     embeds = np.array([encoder.embed_utterance(w) for w in windows])
@@ -273,7 +277,7 @@ def diarize_and_transcribe(
     for start, end, label in merged:
         if end - start < 0.3:
             continue
-        text = _transcribe_segment(transcriber, audio_path, start, end)
+        text = _transcribe_segment(transcriber, audio_path, start, end, language=language)
         if text.strip():
             result.append(DiarizedSegment(start, end, f"СПИКЕР_{label + 1}", text.strip()))
     return result
@@ -282,19 +286,19 @@ def diarize_and_transcribe(
 _MAX_SEG_DUR = 30.0  # секунды; GigaAM/Parakeet падают на длинных сегментах
 
 
-def _transcribe_segment(transcriber: "BaseTranscriber", audio_path: str, start: float, end: float) -> str:
+def _transcribe_segment(transcriber: "BaseTranscriber", audio_path: str, start: float, end: float, language: str | None = None) -> str:
     """Транскрибировать сегмент, нарезая на куски если он слишком длинный."""
     dur = end - start
     if dur <= _MAX_SEG_DUR:
         with _extract_segment(audio_path, start, end) as seg_wav:
-            return transcriber.transcribe(seg_wav)
+            return transcriber.transcribe(seg_wav, language=language)
 
     parts = []
     chunk_start = start
     while chunk_start < end:
         chunk_end = min(chunk_start + _MAX_SEG_DUR, end)
         with _extract_segment(audio_path, chunk_start, chunk_end) as seg_wav:
-            text = transcriber.transcribe(seg_wav)
+            text = transcriber.transcribe(seg_wav, language=language)
             if text.strip():
                 parts.append(text.strip())
         chunk_start = chunk_end

@@ -103,6 +103,7 @@ async def transcribe(
     file: UploadFile = File(...),
     transcriber: str = Form("whisper"),
     model: str | None = Form(None),
+    language: str | None = Form(None),
     textonly: bool = Form(False),
     diarize: bool = Form(False),
     num_speakers: int | None = Form(None),
@@ -138,10 +139,11 @@ async def transcribe(
                     tmp_path,
                     num_speakers=num_speakers,
                     max_speakers=max_speakers,
+                    language=language,
                 )
                 text = format_dialogue(segments)
             else:
-                text = transcribe_channels(instance, tmp_path)
+                text = transcribe_channels(instance, tmp_path, language=language)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Transcription failed: {e}") from e
 
@@ -155,6 +157,7 @@ async def transcribe(
     return JSONResponse({
         "transcriber": transcriber_name,
         "model": model_name,
+        "language": language,
         "text": text,
         "diarized": diarize,
     })
