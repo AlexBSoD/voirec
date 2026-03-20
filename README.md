@@ -52,6 +52,7 @@ voirec --diarize --num-speakers 2 audio.mp3
 | `--skip-whisper` | Пропустить Whisper | — |
 | `--skip-gigaam` | Пропустить GigaAM | — |
 | `--skip-parakeet` | Пропустить Parakeet | — |
+| `--language TEXT` | Код языка (`ru`, `en` и т.д.) | автодетект |
 | `--diarize` | Включить диаризацию | — |
 | `--num-speakers N` | Точное число спикеров | auto |
 | `--max-speakers N` | Максимальное число спикеров | — |
@@ -119,6 +120,7 @@ Swagger UI доступен по адресу `http://localhost:8000/docs`.
 | `file` | file | Да | Аудиофайл |
 | `transcriber` | str | Нет | `whisper` / `gigaam` / `parakeet` (default: `whisper`) |
 | `model` | str | Нет | Имя модели (default: дефолт транскриббера) |
+| `language` | str | Нет | Код языка, например `ru`, `en` (default: автодетект) |
 | `textonly` | bool | Нет | Вернуть plain text вместо JSON (default: `false`) |
 | `diarize` | bool | Нет | Диаризация (default: `false`) |
 | `num_speakers` | int | Нет | Точное число спикеров |
@@ -133,6 +135,7 @@ curl -F "file=@audio.mp3" -F "transcriber=whisper" http://localhost:8000/transcr
 {
   "transcriber": "whisper",
   "model": "onnx-community/whisper-large-v3-turbo",
+  "language": null,
   "text": "Привет, мир...",
   "diarized": false
 }

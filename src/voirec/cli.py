@@ -24,6 +24,7 @@ from .transcribers import (
 @click.option('--diarize', is_flag=True, help='Включить диаризацию (разделение говорящих с тайм-кодами)')
 @click.option('--num-speakers', type=int, default=None, help='Точное число говорящих')
 @click.option('--max-speakers', type=int, default=None, help='Максимальное число говорящих (для auto-detect)')
+@click.option('--language', default=None, help='Код языка для транскрибации, например ru, en (по умолчанию: автодетект)')
 def main(
     audio_file: Path,
     output_dir: Path,
@@ -36,6 +37,7 @@ def main(
     diarize: bool,
     num_speakers: int,
     max_speakers: int,
+    language: str | None,
 ):
     """Транскрибация аудио файла с помощью Whisper, GigaAM и Parakeet."""
 
@@ -84,6 +86,7 @@ def main(
                 str(audio_file),
                 num_speakers=num_speakers,
                 max_speakers=max_speakers,
+                language=language,
             )
             dialogue = format_dialogue(segments)
             output_file.write_text(dialogue, encoding='utf-8')
@@ -95,7 +98,7 @@ def main(
             output_file = output_dir / f"{base_name}_{name}.txt"
             try:
                 click.echo(f"\n🔄 {name.upper()}: начинаю транскрибацию...")
-                text = transcribe_channels(transcriber, str(audio_file))
+                text = transcribe_channels(transcriber, str(audio_file), language=language)
                 output_file.write_text(text, encoding='utf-8')
                 click.echo(f"✅ {name.upper()}: готово -> {output_file}")
             except Exception as e:
